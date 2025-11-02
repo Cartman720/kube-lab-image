@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kube Lab Image</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --space-1: 8px;
+        --space-2: 12px;
+        --space-3: 16px;
+        --space-4: 24px;
+        --radius: 10px;
+        --border: #cccccc33;
+        --card-bg: #ffffff22;
+        --ok: #22c55e; /* brighter green */
+        --bad: #d1242f;
+        --maxw: 1280px;
+      }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        margin: 0;
+      }
+      header {
+        padding: 14px var(--space-4);
+        background: #0b74de;
+        color: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--border);
+      }
+      h1 { margin: 0; font-size: 20px; }
+      header .muted { margin-top: 4px; }
+
+      main {
+        padding: var(--space-4);
+        max-width: var(--maxw);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+      }
+
+      .grid { display: grid; gap: var(--space-4); align-items: stretch; }
+
+      /* 1 column by default, 2 columns on medium, 3 columns on wide */
+      .quad-grid { grid-template-columns: 1fr; }
+      @media (min-width: 760px) { .quad-grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (min-width: 1200px) { .quad-grid { grid-template-columns: repeat(3, 1fr); } }
+
+      /* Make probes span full width below the 3 summary cards */
+      .probes { grid-column: 1 / -1; }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: var(--space-3);
+        background: var(--card-bg);
+        backdrop-filter: blur(2px);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+
+      .card h2 { margin: 0 0 var(--space-2) 0; font-size: 16px; }
+      .muted { opacity: 0.7; font-size: 12px; }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+
+      .ok { color: var(--ok); }
+      .bad { color: var(--bad); }
+      .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-weight: 600; }
+      .chip.ok { color: var(--ok); background: color-mix(in oklab, var(--ok), transparent 90%); border-color: color-mix(in oklab, var(--ok), transparent 55%); }
+      .chip.bad { color: var(--bad); border-color: color-mix(in oklab, var(--bad), transparent 70%); }
+
+      .loading { opacity: 0.6; }
+
+      .probe-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th { text-align: left; padding: 6px; border-bottom: 1px solid var(--border); font-weight: 600; }
+      td { vertical-align: top; padding: 6px 6px; }
+      tr + tr td { border-top: 1px solid var(--border); }
+      td.key { white-space: nowrap; font-weight: 600; width: 30%; }
+
+      pre#raw { max-height: 40vh; overflow: auto; margin: 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+
+      /* Improve wrapping for long network strings */
+      #containerTable td { word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Kube Lab Image</h1>
+      <div class="muted">Bun server with Kubernetes probes and info</div>
+    </header>
+    <main>
+      <section class="grid quad-grid">
+        <div class="card" id="k8s">
+          <h2>Kubernetes</h2>
+          <table id="k8sTable" class="loading"></table>
+        </div>
+        <div class="card" id="app">
+          <h2>App</h2>
+          <table id="appTable" class="loading"></table>
+        </div>
+        <div class="card" id="container">
+          <h2>Container</h2>
+          <table id="containerTable" class="loading"></table>
+        </div>
+        <div class="card probes" id="probes">
+          <h2>Probes</h2>
+          <div class="muted">Randomized 15–60s startup delays</div>
+          <table id="probesTable" class="loading"></table>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Raw Info</h2>
+        <pre id="raw" class="loading">Loading…</pre>
+      </section>
+    </main>
+    <script>
+      async function fetchInfo() {
+        const res = await fetch('/info');
+        return await res.json();
+      }
+
+      function setProbesTable(probes) {
+        const table = document.getElementById('probesTable');
+        table.classList.remove('loading');
+        table.innerHTML = '';
+
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr>\
+          <th>Probe</th>\
+          <th>Status</th>\
+          <th>Delay</th>\
+          <th>Elapsed</th>\
+          <th>Remaining</th>\
+        </tr>';
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const entries = Object.entries(probes);
+        for (const [name, p] of entries) {
+          const tr = document.createElement('tr');
+          const tdName = document.createElement('td');
+          tdName.textContent = name;
+          const tdStatus = document.createElement('td');
+          tdStatus.innerHTML = p.ok ? '<span class="chip ok">OK</span>' : '<span class="chip bad">UNAVAILABLE</span>';
+          const tdDelay = document.createElement('td');
+          tdDelay.textContent = `${p.delaySeconds}s`;
+          const tdElapsed = document.createElement('td');
+          tdElapsed.textContent = `${p.elapsedSeconds}s`;
+          const tdRem = document.createElement('td');
+          tdRem.textContent = `${p.remainingSeconds}s`;
+          tr.append(tdName, tdStatus, tdDelay, tdElapsed, tdRem);
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+      }
+
+      function setTable(id, rows) {
+        const table = document.getElementById(id);
+        table.classList.remove('loading');
+        table.innerHTML = '';
+        for (const [k, v] of rows) {
+          const tr = document.createElement('tr');
+          const tdK = document.createElement('td');
+          tdK.textContent = k;
+          tdK.className = 'key';
+          const tdV = document.createElement('td');
+          tdV.textContent = (v === undefined || v === null || v === '') ? '—' : String(v);
+          tr.appendChild(tdK);
+          tr.appendChild(tdV);
+          table.appendChild(tr);
+        }
+      }
+
+      function populate(info) {
+        setProbesTable(info.probes);
+        setTable('k8sTable', [
+          ['Namespace', info.kubernetes.namespace],
+          ['Pod', info.kubernetes.podName],
+          ['Node', info.kubernetes.nodeName],
+          ['Service', info.kubernetes.serviceName],
+          ['Cluster', info.kubernetes.clusterName],
+          ['API Host', info.kubernetes.api.host],
+          ['API Port', info.kubernetes.api.port],
+        ]);
+        setTable('appTable', [
+          ['Name', info.app.name],
+          ['Version', info.app.version],
+          ['Bun', info.app.bun],
+          ['Node Compat', info.app.nodeCompat],
+          ['Started', info.app.startedAt],
+          ['Port', info.app.port],
+        ]);
+        setTable('containerTable', [
+          ['PID', info.container.pid],
+          ['Platform', info.container.platform],
+          ['Arch', info.container.arch],
+          ['Env Keys', info.container.envKeys],
+          ['Network', (info.container.network || []).map(n => `${n.interfaceName}: ${n.addresses.join(', ')}`).join(' | ')],
+        ]);
+        const raw = document.getElementById('raw');
+        raw.classList.remove('loading');
+        raw.textContent = JSON.stringify(info, null, 2);
+      }
+
+      async function refresh() {
+        try {
+          const info = await fetchInfo();
+          populate(info);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 2000);
+    </script>
+  </body>
+  </html>
+
+
+
