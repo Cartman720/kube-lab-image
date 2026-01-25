@@ -22,7 +22,10 @@ export interface ProbeManagerOptions {
  */
 export function createProbeManager(options: ProbeManagerOptions = {}) {
   const minDelaySeconds = Math.max(0, options.minDelaySeconds ?? 15);
-  const maxDelaySeconds = Math.max(minDelaySeconds, options.maxDelaySeconds ?? 60);
+  const maxDelaySeconds = Math.max(
+    minDelaySeconds,
+    options.maxDelaySeconds ?? 60
+  );
 
   const startedAtMs = Date.now();
 
@@ -55,6 +58,3 @@ export function createProbeManager(options: ProbeManagerOptions = {}) {
 
   return { getStatus };
 }
-
-
-
