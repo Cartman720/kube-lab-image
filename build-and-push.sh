@@ -14,6 +14,7 @@ Optional:
   -t, --tag       Image tag (default: git short SHA or timestamp) (env: IMAGE_TAG)
   -p, --platforms Comma-separated platforms for buildx (e.g. linux/amd64,linux/arm64)
   --latest        Also tag and push :latest
+  --no-push       Build only; do not push (e.g. for CI PR checks)
   --context PATH  Build context (default: repo root)
   --login         Perform docker login if DOCKERHUB_TOKEN or DOCKERHUB_PASSWORD is set
   -h, --help      Show this help
@@ -37,6 +38,7 @@ DOCKERHUB_REPO="${DOCKERHUB_REPO:-}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 PLATFORMS="${PLATFORMS:-}"
 TAG_LATEST=false
+NO_PUSH=false
 DO_LOGIN=false
 BUILD_CONTEXT="$REPO_ROOT"
 
@@ -53,6 +55,8 @@ while [[ ${1:-} != "" ]]; do
       PLATFORMS="$2"; shift 2 ;;
     --latest)
       TAG_LATEST=true; shift 1 ;;
+    --no-push)
+      NO_PUSH=true; shift 1 ;;
     --login)
       DO_LOGIN=true; shift 1 ;;
     --context)
@@ -108,34 +112,53 @@ if [[ -n "$PLATFORMS" ]]; then
     exit 1
   fi
 
-  # Build multi-arch and push directly with both tags if requested
-  if [[ "$TAG_LATEST" == true ]]; then
-    docker buildx build \
-      --platform "$PLATFORMS" \
-      -t "$IMAGE_NAME:$IMAGE_TAG" \
-      -t "$IMAGE_NAME:latest" \
-      --push \
-      "$BUILD_CONTEXT"
+  # Build multi-arch (and push unless --no-push)
+  if [[ "$NO_PUSH" == true ]]; then
+    if [[ "$TAG_LATEST" == true ]]; then
+      docker buildx build \
+        --platform "$PLATFORMS" \
+        -t "$IMAGE_NAME:$IMAGE_TAG" \
+        -t "$IMAGE_NAME:latest" \
+        "$BUILD_CONTEXT"
+    else
+      docker buildx build \
+        --platform "$PLATFORMS" \
+        -t "$IMAGE_NAME:$IMAGE_TAG" \
+        "$BUILD_CONTEXT"
+    fi
   else
-    docker buildx build \
-      --platform "$PLATFORMS" \
-      -t "$IMAGE_NAME:$IMAGE_TAG" \
-      --push \
-      "$BUILD_CONTEXT"
+    if [[ "$TAG_LATEST" == true ]]; then
+      docker buildx build \
+        --platform "$PLATFORMS" \
+        -t "$IMAGE_NAME:$IMAGE_TAG" \
+        -t "$IMAGE_NAME:latest" \
+        --push \
+        "$BUILD_CONTEXT"
+    else
+      docker buildx build \
+        --platform "$PLATFORMS" \
+        -t "$IMAGE_NAME:$IMAGE_TAG" \
+        --push \
+        "$BUILD_CONTEXT"
+    fi
   fi
 else
-  # Single-arch build then push
+  # Single-arch build (and push unless --no-push)
   docker build -t "$IMAGE_NAME:$IMAGE_TAG" "$BUILD_CONTEXT"
-  docker push "$IMAGE_NAME:$IMAGE_TAG"
-  if [[ "$TAG_LATEST" == true ]]; then
-    docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"
-    docker push "$IMAGE_NAME:latest"
+  if [[ "$NO_PUSH" != true ]]; then
+    docker push "$IMAGE_NAME:$IMAGE_TAG"
+    if [[ "$TAG_LATEST" == true ]]; then
+      docker tag "$IMAGE_NAME:$IMAGE_TAG" "$IMAGE_NAME:latest"
+      docker push "$IMAGE_NAME:latest"
+    fi
   fi
 fi
 
-echo "Pushed: $IMAGE_NAME:$IMAGE_TAG"
-if [[ "$TAG_LATEST" == true ]]; then
-  echo "Pushed: $IMAGE_NAME:latest"
+if [[ "$NO_PUSH" != true ]]; then
+  echo "Pushed: $IMAGE_NAME:$IMAGE_TAG"
+  if [[ "$TAG_LATEST" == true ]]; then
+    echo "Pushed: $IMAGE_NAME:latest"
+  fi
 fi
 
 echo "Done."
