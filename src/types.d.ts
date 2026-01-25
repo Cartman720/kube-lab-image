@@ -8,5 +8,3 @@ declare module "@fastify/static" {
   const plugin: any;
   export default plugin;
 }
-
-
